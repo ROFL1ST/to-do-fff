@@ -6,9 +6,12 @@
  * - 5 checkboxes with animated strikethrough
  * - Dynamic encouragement text based on completion count
  * - Shows "Lihat Hadiah" button when all 5 are done
+ *
+ * NOTE: useLiveQuery is exported directly from 'dexie' since v4.
+ * No need for the separate 'dexie-react-hooks' package.
  */
 import { useEffect } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
+import { useLiveQuery } from 'dexie'   // ← fix: import from 'dexie', not 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Circle, Gift } from 'lucide-react'
 import { db, seedTasks, toggleTask } from '../db'
@@ -33,7 +36,7 @@ export default function Tasks() {
   const tasks = useLiveQuery(() => db.tasks.orderBy('id').toArray(), [])
 
   if (!tasks) {
-    // Loading state
+    // Loading state while Dexie initializes
     return (
       <div className="min-h-dvh bg-amber-50 flex items-center justify-center">
         <p className="text-amber-500 animate-pulse">Loading tugas...</p>
@@ -92,7 +95,7 @@ export default function Tasks() {
                 <Circle className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
               )}
 
-              {/* Task label with animated strikethrough */}
+              {/* Task label with animated strikethrough via CSS class */}
               <span
                 className={`task-label text-sm font-medium leading-snug ${
                   task.done ? 'text-amber-400' : 'text-amber-900'
@@ -104,7 +107,7 @@ export default function Tasks() {
           ))}
         </ul>
 
-        {/* Encouragement text */}
+        {/* Encouragement text — dynamic based on doneCount */}
         {ENCOURAGEMENTS[doneCount] && (
           <div className="bg-amber-100 border border-amber-200 rounded-2xl px-4 py-3 text-center animate-bounce-in">
             <p className="text-amber-700 font-medium text-sm">
@@ -113,7 +116,7 @@ export default function Tasks() {
           </div>
         )}
 
-        {/* Lihat Hadiah button — only visible when all done */}
+        {/* Lihat Hadiah button — only visible when all 5 are done */}
         {allDone && (
           <button
             onClick={() => navigate('/reward')}
