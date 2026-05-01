@@ -1,24 +1,17 @@
 /**
  * Tasks.jsx — Main to-do list page.
  *
- * - Reads & writes to Dexie DB via live query (useLiveQuery)
- * - Dynamic progress bar
- * - 5 checkboxes with animated strikethrough
- * - Dynamic encouragement text based on completion count
- * - Shows "Lihat Hadiah" button when all 5 are done
- *
- * NOTE: useLiveQuery is exported directly from 'dexie' since v4.
- * No need for the separate 'dexie-react-hooks' package.
+ * Reactivity strategy: manual useState + useEffect + Dexie Table.hook().
+ * This avoids any dependency on dexie-react-hooks or dexie/react sub-paths
+ * which may not be available depending on the installed dexie version.
  */
-import { useEffect } from 'react'
-import { useLiveQuery } from 'dexie'   // ← fix: import from 'dexie', not 'dexie-react-hooks'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Circle, Gift } from 'lucide-react'
 import { db, seedTasks, toggleTask } from '../db'
 
-// --- Encouragement messages per completed count ---
 const ENCOURAGEMENTS = [
-  '', // 0 done — no message
+  '',
   'Satu kelar! Keren 🚀',
   'Dua down! Ritme kamu lagi bagus nih 🔥',
   'Tiga beres! Kamu hampir separuh jalan 💛',
@@ -28,15 +21,35 @@ const ENCOURAGEMENTS = [
 
 export default function Tasks() {
   const navigate = useNavigate()
+  const [tasks, setTasks] = useState(null)
 
-  // Seed DB on first mount
-  useEffect(() => { seedTasks() }, [])
+  const loadTasks = useCallback(async () => {
+    const data = await db.tasks.orderBy('id').toArray()
+    setTasks(data)
+  }, [])
 
-  // Live-reactive query — re-renders whenever DB changes
-  const tasks = useLiveQuery(() => db.tasks.orderBy('id').toArray(), [])
+  useEffect(() => {
+    // Seed once, then load initial data
+    seedTasks().then(loadTasks)
+
+    // Subscribe to any DB mutations on the tasks table
+    const onCreate  = db.tasks.hook('creating',  () => setTimeout(loadTasks, 0))
+    const onUpdate  = db.tasks.hook('updating',  () => setTimeout(loadTasks, 0))
+    const onDelete  = db.tasks.hook('deleting',  () => setTimeout(loadTasks, 0))
+
+    return () => {
+      db.tasks.hook('creating').unsubscribe(onCreate)
+      db.tasks.hook('updating').unsubscribe(onUpdate)
+      db.tasks.hook('deleting').unsubscribe(onDelete)
+    }
+  }, [loadTasks])
+
+  const handleToggle = async (id, currentDone) => {
+    await toggleTask(id, currentDone)
+    loadTasks() // immediate UI refresh
+  }
 
   if (!tasks) {
-    // Loading state while Dexie initializes
     return (
       <div className="min-h-dvh bg-amber-50 flex items-center justify-center">
         <p className="text-amber-500 animate-pulse">Loading tugas...</p>
@@ -44,10 +57,10 @@ export default function Tasks() {
     )
   }
 
-  const doneCount = tasks.filter((t) => t.done).length
-  const total = tasks.length
+  const doneCount  = tasks.filter((t) => t.done).length
+  const total      = tasks.length
   const progressPct = total > 0 ? Math.round((doneCount / total) * 100) : 0
-  const allDone = doneCount === total && total > 0
+  const allDone    = doneCount === total && total > 0
 
   return (
     <div className="min-h-dvh bg-amber-50 flex flex-col items-center px-5 py-10">
@@ -64,7 +77,7 @@ export default function Tasks() {
         {/* Progress bar */}
         <div className="bg-amber-100 rounded-full h-3 overflow-hidden">
           <div
-            className="bg-amber-400 h-3 rounded-full animate-progress transition-all duration-500"
+            className="bg-amber-400 h-3 rounded-full transition-all duration-500"
             style={{ width: `${progressPct}%` }}
             role="progressbar"
             aria-valuenow={progressPct}
@@ -82,20 +95,20 @@ export default function Tasks() {
                 task.done ? 'task-done opacity-70' : ''
               }`}
               style={{ animationDelay: `${i * 60}ms` }}
-              onClick={() => toggleTask(task.id, task.done)}
+              onClick={() => handleToggle(task.id, task.done)}
               role="checkbox"
               aria-checked={!!task.done}
               tabIndex={0}
-              onKeyDown={(e) => e.key === ' ' && toggleTask(task.id, task.done)}
+              onKeyDown={(e) => {
+                if (e.key === ' ') { e.preventDefault(); handleToggle(task.id, task.done) }
+              }}
             >
-              {/* Checkbox icon */}
               {task.done ? (
                 <CheckCircle2 className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
               ) : (
                 <Circle className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
               )}
 
-              {/* Task label with animated strikethrough via CSS class */}
               <span
                 className={`task-label text-sm font-medium leading-snug ${
                   task.done ? 'text-amber-400' : 'text-amber-900'
@@ -107,7 +120,7 @@ export default function Tasks() {
           ))}
         </ul>
 
-        {/* Encouragement text — dynamic based on doneCount */}
+        {/* Encouragement text */}
         {ENCOURAGEMENTS[doneCount] && (
           <div className="bg-amber-100 border border-amber-200 rounded-2xl px-4 py-3 text-center animate-bounce-in">
             <p className="text-amber-700 font-medium text-sm">
@@ -116,7 +129,7 @@ export default function Tasks() {
           </div>
         )}
 
-        {/* Lihat Hadiah button — only visible when all 5 are done */}
+        {/* Lihat Hadiah — appears only when all 5 tasks are done */}
         {allDone && (
           <button
             onClick={() => navigate('/reward')}
